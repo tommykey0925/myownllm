@@ -4,11 +4,11 @@ import argparse
 import torch
 
 from config import Config
-from model import GPT
+from model import Bungaku
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ミニGPTテキスト生成")
+    parser = argparse.ArgumentParser(description="Bungaku テキスト生成")
     parser.add_argument("--prompt", type=str, default="", help="生成の開始テキスト")
     parser.add_argument("--max-tokens", type=int, default=200, help="生成トークン数")
     parser.add_argument("--temperature", type=float, default=1.0, help="温度 (低い=保守的)")
@@ -27,7 +27,7 @@ def main():
     decode = lambda l: "".join([itos[i] for i in l])
 
     # モデル再構築
-    model = GPT(cfg, vocab_size).to(cfg.device)
+    model = Bungaku(cfg, vocab_size).to(cfg.device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

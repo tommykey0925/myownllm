@@ -1,4 +1,4 @@
-"""Transformer (GPT) モデル本体"""
+"""Transformer (Bungaku) モデル本体 — 日本語文学向け言語モデル"""
 
 import torch
 import torch.nn as nn
@@ -80,8 +80,8 @@ class Block(nn.Module):
         return x
 
 
-class GPT(nn.Module):
-    """GPT言語モデル"""
+class Bungaku(nn.Module):
+    """Bungaku — 日本語文学言語モデル"""
 
     def __init__(self, cfg: Config, vocab_size: int):
         super().__init__()

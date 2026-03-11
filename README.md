@@ -1,4 +1,4 @@
-# MyOwnLLM — ミニGPT言語モデル
+# BungakuLLM — 日本文学モデル
 
 ゼロから学ぶTransformerベースの言語モデル。文字レベルのGPTを最小構成で実装し、テキスト生成を体験できるプロジェクトです。
 
@@ -249,7 +249,7 @@ pip install -r requirements.txt
 python train.py
 ```
 
-`data/input.txt` がなければ Tiny Shakespeare データセットが自動でダウンロードされます。学習完了後、`checkpoint.pt` が保存されます。
+`data/input.txt` がなければ青空文庫から日本文学12作品（夏目漱石、太宰治、芥川龍之介、宮沢賢治、森鷗外、島崎藤村）が自動でダウンロードされます（約120万文字）。学習完了後、`checkpoint.pt` が保存されます。
 
 ### テキスト生成
 

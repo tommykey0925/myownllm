@@ -1,12 +1,52 @@
 """データ読込・学習ループ・チェックポイント保存"""
 
 import os
+import re
 import torch
 
 from config import Config
-from model import GPT
+from model import Bungaku
 
 cfg = Config()
+
+
+# --- テキストクリーニング（青空文庫用） ---
+def clean_aozora(text: str) -> str:
+    """青空文庫テキストからルビ・注記・ヘッダー/フッターを除去する"""
+    # ヘッダー除去（「-------...」区切り以降が本文）
+    parts = re.split(r"-{5,}", text)
+    if len(parts) >= 3:
+        # 最初のセクション（タイトル・凡例）を除去
+        text = "".join(parts[2:])
+    # フッター除去（「底本：」以降を削除）
+    text = re.split(r"底本：", text)[0]
+
+    # ルビ記号 ｜ を除去
+    text = text.replace("｜", "")
+    # ルビ《...》を除去
+    text = re.sub(r"《[^》]*》", "", text)
+    # 注記 ［＃...］ を除去
+    text = re.sub(r"［＃[^］]*］", "", text)
+    # 連続空行を1つに
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+# --- 作品リスト（青空文庫・著作権切れ作品） ---
+AOZORA_WORKS = [
+    ("https://www.aozora.gr.jp/cards/000148/files/752_ruby_2438.zip", "坊っちゃん"),
+    ("https://www.aozora.gr.jp/cards/000148/files/789_ruby_5639.zip", "吾輩は猫である"),
+    ("https://www.aozora.gr.jp/cards/000035/files/1567_ruby_4948.zip", "走れメロス"),
+    ("https://www.aozora.gr.jp/cards/000879/files/127_ruby_150.zip", "羅生門"),
+    ("https://www.aozora.gr.jp/cards/000879/files/92_ruby_164.zip", "蜘蛛の糸"),
+    ("https://www.aozora.gr.jp/cards/000081/files/456_ruby_145.zip", "銀河鉄道の夜"),
+    ("https://www.aozora.gr.jp/cards/000129/files/2078_ruby_15898.zip", "舞姫"),
+    ("https://www.aozora.gr.jp/cards/000148/files/773_ruby_5968.zip", "こころ"),
+    ("https://www.aozora.gr.jp/cards/000148/files/794_ruby_4237.zip", "三四郎"),
+    ("https://www.aozora.gr.jp/cards/000158/files/1502_ruby_24534.zip", "破戒"),
+    ("https://www.aozora.gr.jp/cards/000035/files/301_ruby_5915.zip", "人間失格"),
+    ("https://www.aozora.gr.jp/cards/000035/files/1565_ruby_8220.zip", "斜陽"),
+]
 
 
 # --- データ読込 ---
@@ -14,15 +54,40 @@ def load_data():
     if os.path.exists(cfg.data_path):
         with open(cfg.data_path, "r", encoding="utf-8") as f:
             return f.read()
-    # フォールバック: Tiny Shakespeareをダウンロード
-    print(f"{cfg.data_path} が見つかりません。Tiny Shakespeareをダウンロードします...")
+    # 青空文庫から複数作品をダウンロード
+    print(f"{cfg.data_path} が見つかりません。青空文庫からダウンロードします...")
     import urllib.request
+    import zipfile
+    import io
 
-    os.makedirs(os.path.dirname(cfg.data_path), exist_ok=True)
-    url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
-    urllib.request.urlretrieve(url, cfg.data_path)
-    with open(cfg.data_path, "r", encoding="utf-8") as f:
-        return f.read()
+    os.makedirs(os.path.dirname(cfg.data_path) or ".", exist_ok=True)
+    texts = []
+    for url, title in AOZORA_WORKS:
+        try:
+            print(f"ダウンロード中: {title} ({url})")
+            response = urllib.request.urlopen(url)
+            zip_data = response.read()
+            with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+                txt_names = [n for n in zf.namelist() if n.endswith(".txt")]
+                if not txt_names:
+                    print(f"  スキップ: {title} — ZIPにテキストファイルなし")
+                    continue
+                raw = zf.read(txt_names[0]).decode("shift_jis")
+            cleaned = clean_aozora(raw)
+            texts.append(cleaned)
+            print(f"  完了: {title} ({len(cleaned):,} 文字)")
+        except Exception as e:
+            print(f"  スキップ: {title} — {e}")
+            continue
+
+    if not texts:
+        raise RuntimeError("1作品もダウンロードできませんでした")
+
+    text = "\n\n".join(texts)
+    with open(cfg.data_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"保存完了: {cfg.data_path} ({len(text):,} 文字, {len(texts)}作品)")
+    return text
 
 
 text = load_data()
@@ -68,7 +133,7 @@ def estimate_loss(model):
 
 
 # --- モデル作成 ---
-model = GPT(cfg, vocab_size).to(cfg.device)
+model = Bungaku(cfg, vocab_size).to(cfg.device)
 param_count = sum(p.numel() for p in model.parameters())
 print(f"パラメータ数: {param_count:,}")
 print(f"デバイス: {cfg.device}")
