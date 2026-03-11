@@ -7,17 +7,17 @@ import torch
 @dataclass
 class Config:
     # model
-    n_embd: int = 128
-    n_head: int = 4
-    n_layer: int = 4
+    n_embd: int = 256
+    n_head: int = 8
+    n_layer: int = 6
     block_size: int = 128
     dropout: float = 0.1
 
     # training
     batch_size: int = 64
     learning_rate: float = 3e-4
-    max_iters: int = 5000
-    eval_interval: int = 500
+    max_iters: int = 20000
+    eval_interval: int = 1000
     eval_iters: int = 200
 
     # paths
