@@ -12,7 +12,6 @@ class Config:
 
     # n_embd (number of embedding dimensions)
     # README 3-5-3: C — 1 tokenを表すベクトルの長さ。内部表現の豊かさを決める。
-    # README 2-5-1: ベクトル — 数字を横に並べたもの。
     n_embd: int = 256
 
     # n_head (number of attention heads)

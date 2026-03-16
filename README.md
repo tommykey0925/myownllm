@@ -59,9 +59,11 @@ AOZORA_WORKS = [
 
 ```python
 def clean_aozora(text: str) -> str:
+    # ... ヘッダー・フッター除去 ...
     text = text.replace("｜", "")           # ルビ記号除去
     text = re.sub(r"《[^》]*》", "", text)   # ルビ除去
     text = re.sub(r"［＃[^］]*］", "", text) # 注記除去
+    # ...
 ```
 
 ## 1-6. この段階の完成状態
@@ -75,7 +77,7 @@ def clean_aozora(text: str) -> str:
 text = load_data()
 ```
 
-# 2. データの token化・ID化・ベクトル化
+# 2. データの token化・ID化・tensor化
 
 ## 2-1. 何をする段階か
 
@@ -87,7 +89,6 @@ text = load_data()
 **文章**
 → **token 化**
 → **ID 化**
-→ **ベクトル化**
 
 ## 2-2. token 化
 
@@ -187,55 +188,19 @@ vocab_size = len(chars)
 data = torch.tensor(encode(text), dtype=torch.long)
 ```
 
-## 2-5. ベクトル化
-
-### 2-5-1. 用語: ベクトル
-**意味:** 数字を横に並べたもの。
-**なぜ必要か:** token ID のままだと、token の特徴を表しにくいから。
-**どう使うか:** token ID をベクトルへ変える。
-
-### 2-5-2. 用語: embedding
-**意味:** token ID をベクトルに変えること。
-**なぜ必要か:** 番号だけではなく、計算に向いた内部表現が必要だから。
-**どう使うか:** token ID を添字として embedding table の対応行を取り出す。
-
-実際のコード（`model.py`）:
-
-```python
-self.token_emb = nn.Embedding(vocab_size, cfg.n_embd)
-```
-
-### 2-5-3. 用語: embedding table
-**意味:** token ID ごとのベクトル一覧表。
-**なぜ必要か:** 各 token に対応する内部表現を持つため。
-**どう使うか:** たとえば ID が `7` なら、table の 7 行目を取る。
-
-例:
-
-```text
-7 -> [0.2, -0.5, 1.1, ...]
-```
-
-実際のコード（`model.py`）:
-
-```python
-self.token_emb = nn.Embedding(vocab_size, cfg.n_embd)
-```
-
-## 2-6. この段階でのデータの形
+## 2-5. この段階でのデータの形
 
 この段階の終わりには、文章は最終的に
 
 - token の列
 - token ID の列
 - token ID tensor
-- embedding 後のベクトル列
 
 として扱えるようになります。
 
-## 2-7. この段階の完成状態
+## 2-6. この段階の完成状態
 
-この段階が終わると、**文章がモデルに入力できる数字の形**になっています。
+この段階が終わると、**文章が token ID tensor の形**になっています。
 まだモデル本体は作っていませんが、**学習データをモデルに渡す準備**はできています。
 
 # 3. モデルの用意
@@ -270,8 +235,8 @@ self.token_emb = nn.Embedding(vocab_size, cfg.n_embd)
 **なぜ必要か:** モデルがどの形の入力を受け取るかを決めるため。
 **どう使うか:** 入力は通常 `(B, T)` の tensor にする。
 
-例: `(64, 256)`
-= **256 token の系列を 64 本まとめて入れる**
+例: `(64, 128)`
+= **128 token の系列を 64 本まとめて入れる**
 
 ## 3-3. 出力の仕様を決める
 
@@ -353,6 +318,7 @@ wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
 具体的には、各位置のベクトルから query（何を知りたいか）、key（何を持っているか）、value（実際の情報）の3つを作る。
 query と key の内積で「見る強さ」を計算し、スケーリングで値の大きさを調整したあと、softmax で合計1の比率に変える。
 その比率で value を混ぜ合わせたものが、文脈込みのベクトルになる。
+学習時には、この比率に対して Dropout をかけて、特定の位置への依存を防ぐ。
 
 結果として、各位置のベクトルは
 **文脈込みのベクトル** になります。
@@ -365,8 +331,21 @@ q = self.query(x)  # (B, T, head_size)
 wei = q @ k.transpose(-2, -1) * (k.shape[-1] ** -0.5)  # (B, T, T)
 wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
 wei = F.softmax(wei, dim=-1)
+wei = self.dropout(wei)          # attention dropout
 v = self.value(x)
 out = wei @ v       # (B, T, head_size)
+```
+
+また、複数ヘッドの出力を結合した後、線形変換（出力射影）を通す。
+これにより、各ヘッドが集めた情報を統合する。
+
+実際のコード（`model.py`）:
+
+```python
+self.proj = nn.Linear(cfg.n_embd, cfg.n_embd)
+# ...
+out = torch.cat([h(x) for h in self.heads], dim=-1)
+return self.dropout(self.proj(out))
 ```
 
 ### 3-4-5. FeedForward
@@ -395,7 +374,7 @@ self.net = nn.Sequential(
 **用語: layer norm**
 **意味:** ベクトルの値の偏りを整える部品。
 **なぜ必要か:** 値が偏りすぎると計算が不安定になりやすいから。
-**どう使うか:** attention や feedforward の前後で使って、ベクトルを整える。
+**どう使うか:** attention や feedforward の**前**で使って、ベクトルを整える。
 
 実際のコード（`model.py`）:
 
@@ -440,7 +419,23 @@ class Block(nn.Module):
         return x
 ```
 
-### 3-4-9. 最終出力層
+### 3-4-9. 最終 LayerNorm
+
+**用語: 最終 layer norm**
+**意味:** すべての block を通った後、最終出力層の前にベクトルを整える部品。
+**なぜ必要か:** block 群の出力を安定させてから logits に変換するため。
+**どう使うか:** block 群の出力に対して LayerNorm を適用する。
+
+実際のコード（`model.py`）:
+
+```python
+self.ln_f = nn.LayerNorm(cfg.n_embd)
+# ...
+x = self.ln_f(x)          # 最終LayerNorm
+logits = self.lm_head(x)  # 最終出力層
+```
+
+### 3-4-10. 最終出力層
 
 **用語: 最終出力層**
 **意味:** 最後のベクトルを、候補 token 全員分の logits に変える部品。
@@ -662,8 +657,8 @@ _, loss = model(xb, yb)
 実際のコード（`model.py`）:
 
 ```python
-B, T, C = logits.shape
-loss = F.cross_entropy(logits.view(B * T, C), targets.view(B * T))
+B, T, V = logits.shape
+loss = F.cross_entropy(logits.view(B * T, V), targets.view(B * T))
 ```
 
 ## 4-5. 逆方向に計算する
@@ -721,11 +716,11 @@ optimizer.step()
 
 ### 4-7-1. 用語: iteration / step
 **意味:** 1回の
-**input 作成 → forward → loss → backward → update**
+**input 作成 → forward → loss → zero_grad → backward → update**
 の流れ。
 **なぜ必要か:** 1回だけではほとんど学べないから。
 **どう使うか:** 何千回、何万回と繰り返す。
-各 iteration の先頭では、前回の gradient をゼロにリセットする。
+各 iteration では、forward と loss の計算後、backward の前に gradient をゼロにリセットする。
 リセットしないと前回の gradient が残ったまま加算されてしまうため。
 
 学習とは結局、
@@ -810,7 +805,8 @@ torch.save(checkpoint, cfg.checkpoint_path)
 ### 5-3-1. 用語: 語彙情報
 **意味:** token と token ID の対応。
 **なぜ必要か:** 同じ weight でも、どの ID がどの token か分からないと使えないから。
-**どう使うか:** `stoi` や `itos` のような対応表を保存する。
+**どう使うか:** `chars`（token の一覧リスト）を保存する。
+`stoi` や `itos` は `chars` の順序から一意に再構築できるので、`chars` だけ保存すれば十分。
 
 ### 5-3-2. 用語: 設定値
 **意味:** model の大きさや構造を決める値。

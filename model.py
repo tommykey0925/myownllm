@@ -167,7 +167,7 @@ class Bungaku(nn.Module):
         # 最終LayerNorm
         self.ln_f = nn.LayerNorm(cfg.n_embd)
 
-        # 最終出力層（README 3-4-9）
+        # 最終出力層（README 3-4-10）
         # (B, T, C)のベクトル列を(B, T, V)のlogitsに変える。
         # 次token候補の可能性の点数を出す。
         self.lm_head = nn.Linear(cfg.n_embd, vocab_size)
@@ -195,8 +195,8 @@ class Bungaku(nn.Module):
         if targets is not None:
             # README 4-4: loss — modelの予測がどれだけ外れているかを表す数字
             # cross entropy: 正解tokenの確率が高いか低いかをもとに計算するloss
-            B, T, C = logits.shape
-            loss = F.cross_entropy(logits.view(B * T, C), targets.view(B * T))
+            B, T, V = logits.shape
+            loss = F.cross_entropy(logits.view(B * T, V), targets.view(B * T))
 
         return logits, loss
 
